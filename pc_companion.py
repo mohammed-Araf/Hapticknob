@@ -22,6 +22,9 @@ mouse = MouseController()
 keyboard = KeyboardController()
 
 # ---------------------------------------------------------------- volume
+_last_known_vol = 50
+_audio_warning_shown = False
+
 def get_volume_windows():
     try:
         from pycaw.pycaw import AudioUtilities
@@ -33,17 +36,33 @@ def get_volume_windows():
     return 50
 
 def set_volume_windows(pct):
-    from pycaw.pycaw import AudioUtilities
-    speakers = AudioUtilities.GetSpeakers()
-    if hasattr(speakers, 'EndpointVolume'):
-        speakers.EndpointVolume.SetMasterVolumeLevelScalar(pct / 100.0, None)
-    else:
-        from ctypes import POINTER, cast
-        from comtypes import CLSCTX_ALL
-        from pycaw.pycaw import IAudioEndpointVolume
-        interface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
-        volume.SetMasterVolumeLevelScalar(pct / 100.0, None)
+    global _last_known_vol, _audio_warning_shown
+    try:
+        from pycaw.pycaw import AudioUtilities
+        speakers = AudioUtilities.GetSpeakers()
+        if hasattr(speakers, 'EndpointVolume'):
+            speakers.EndpointVolume.SetMasterVolumeLevelScalar(pct / 100.0, None)
+        else:
+            from ctypes import POINTER, cast
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import IAudioEndpointVolume
+            interface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume.SetMasterVolumeLevelScalar(pct / 100.0, None)
+        _last_known_vol = pct
+        _audio_warning_shown = False
+    except Exception as e:
+        # If no active playback device is detected in Windows, fall back to media keys
+        if not _audio_warning_shown:
+            print("[Volume note] No active speaker/headphone found in Windows (disabled or unplugged). Falling back to media keys.")
+            _audio_warning_shown = True
+        delta = pct - _last_known_vol
+        steps = max(1, int(round(abs(delta) / 2.0)))
+        key = Key.media_volume_up if delta > 0 else Key.media_volume_down
+        for _ in range(steps):
+            keyboard.press(key)
+            keyboard.release(key)
+        _last_known_vol = pct
 
 def set_volume_mac(pct):
     subprocess.run(["osascript", "-e", "set volume output volume %d" % pct], check=False)
