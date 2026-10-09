@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Haptic Knob Controller | Raspberry Pi Pico 2 W</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-badge">
+          <span class="icon-ring"></span>
+          <span class="logo-title">HAPTIC KNOB</span>
+          <span class="version-tag">PICO 2 W</span>
+        </div>
+        <p class="subtitle">Dual-Knob Closed-Loop Position Visualizer</p>
+      </div>
+
+      <div class="header-right">
+        <div id="connStatus" class="status-pill disconnected">
+          <span class="status-dot"></span>
+          <span class="status-text">DISCONNECTED</span>
+        </div>
+        <button id="btnConnect" class="btn-connect">
+          <svg class="icon-usb" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v20M5 7l7-5 7 5M5 17l7 5 7-5"/>
+          </svg>
+          Connect Pico
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="main-layout">
+      <!-- Left Panel: Readouts -->
+      <section class="telemetry-panel left-panel">
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-label">TARGET ANGLE</span>
+            <span class="badge cyan">TRANSLUCENT KNOB</span>
+          </div>
+          <div class="readout-value cyan" id="displayTarget">0.0<span class="unit">°</span></div>
+          <div class="readout-sub">User Commanded Setpoint</div>
+        </div>
+
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-label">ACTUAL MOTOR ANGLE</span>
+            <span class="badge amber">OPAQUE KNOB</span>
+          </div>
+          <div class="readout-value amber" id="displayActual">0.0<span class="unit">°</span></div>
+          <div class="readout-sub">AS5600 12-Bit Magnetic Encoder</div>
+        </div>
+
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-label">TRACKING ERROR (Δθ)</span>
+            <span class="badge" id="errorBadge">LOCK</span>
+          </div>
+          <div class="readout-value" id="displayError">0.0<span class="unit">°</span></div>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="errorBar"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Center: Dual Knob Interactive Stage -->
+      <section class="knob-stage">
+        <div class="dial-chassis" id="knobChassis">
+          <!-- Outer Tick Ring (SVG) -->
+          <svg class="dial-ticks-svg" id="ticksSvg" viewBox="0 0 440 440"></svg>
+
+          <!-- Error Arc Overlay (SVG) -->
+          <svg class="arc-overlay-svg" viewBox="0 0 440 440">
+            <path id="errorArc" d="" fill="none" stroke="rgba(255, 170, 0, 0.45)" stroke-width="6" stroke-linecap="round"/>
+          </svg>
+
+          <!-- LAYER 1: Opaque Knob (BEHIND - Real Motor Shaft) -->
+          <div class="knob-opaque" id="motorKnob">
+            <div class="knob-texture"></div>
+            <div class="knob-rim-metallic"></div>
+            <div class="motor-indicator">
+              <span class="motor-pip"></span>
+              <span class="motor-line"></span>
+            </div>
+            <div class="knob-cap-center">
+              <div class="motor-badge">
+                <span class="motor-icon">⚙</span>
+                <span class="motor-label">MOTOR</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- LAYER 2: Translucent Knob (IN FRONT - User Control Setpoint) -->
+          <div class="knob-translucent" id="controlKnob" title="Click & drag or use mousewheel to rotate">
+            <div class="glass-reflection"></div>
+            <div class="glass-rim"></div>
+            <div class="target-indicator">
+              <span class="target-pip"></span>
+              <span class="target-glow-line"></span>
+            </div>
+            <div class="translucent-center">
+              <div class="drag-hint">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+                </svg>
+                <span>DRAG TO ROTATE</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hover / Angle Guide tooltip -->
+          <div class="angle-tooltip" id="angleTooltip">0°</div>
+        </div>
+
+        <div class="knob-legend">
+          <div class="legend-item">
+            <span class="legend-color cyan-glow"></span>
+            <span>Translucent Knob: <strong>Your Target</strong> (Drag anywhere)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color amber-glow"></span>
+            <span>Opaque Inner: <strong>Real Motor</strong> (AS5600 Encoder)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Panel: Speedometer & Preset Actions -->
+      <section class="telemetry-panel right-panel">
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-label">MOTOR SPEED</span>
+            <span class="badge green">REAL-TIME</span>
+          </div>
+          <div class="readout-value green" id="displayRpm">0.0<span class="unit">RPM</span></div>
+          <div class="readout-sub" id="displayHz">0.0 Hz electrical</div>
+        </div>
+
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-label">PRESET ANGLES</span>
+          </div>
+          <div class="preset-grid">
+            <button class="btn-preset" data-deg="0">0°</button>
+            <button class="btn-preset" data-deg="45">45°</button>
+            <button class="btn-preset" data-deg="90">90°</button>
+            <button class="btn-preset" data-deg="135">135°</button>
+            <button class="btn-preset" data-deg="180">180°</button>
+            <button class="btn-preset" data-deg="270">270°</button>
+            <button class="btn-preset" data-deg="360">360°</button>
+            <button class="btn-preset" data-deg="-90">-90°</button>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-label">HAPTIC & DIRECTIONS</span>
+          </div>
+          <div class="action-buttons">
+            <button id="btnMotorDir" class="btn-action" title="Toggle motor drive direction">
+              <span id="motorDirText">⇄ Motor Dir: Normal</span>
+            </button>
+            <button id="btnEncoderDir" class="btn-action active" title="Toggle encoder angle display direction">
+              <span id="encoderDirText">⇄ Encoder Dir: Inverted (Match)</span>
+            </button>
+            <button id="btnZero" class="btn-action">
+              <span>⟲ Set Current as 0°</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
